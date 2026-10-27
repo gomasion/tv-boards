@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gomasio Photos</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #0b0e12; color: #eef2f5; font-family: "Hiragino Sans", "Noto Sans JP", sans-serif; }
+  header { padding: 26px 34px 6px; display: flex; align-items: baseline; gap: 18px; }
+  h1 { margin: 0; font-size: 36px; }
+  a.back { color: #8fd0ff; font-size: 18px; text-decoration: none; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 18px; padding: 18px 34px 40px; }
+  .grid img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 14px; cursor: pointer; background: #161c23; }
+  #viewer { position: fixed; inset: 0; background: rgba(0,0,0,.94); display: none; flex-direction: column; align-items: center; justify-content: center; }
+  #viewer.on { display: flex; }
+  #viewer img { max-width: 92vw; max-height: 80vh; border-radius: 10px; }
+  .bar { display: flex; gap: 16px; margin-top: 22px; align-items: center; }
+  .bar button { font-size: 26px; padding: 14px 30px; border-radius: 12px; border: 0; background: #24303d; color: #fff; cursor: pointer; }
+  .bar button:active { background: #35506e; }
+  #count { font-size: 20px; color: #aeb9c4; min-width: 90px; text-align: center; }
+  #status { padding: 0 34px; color: #8b98a5; font-size: 17px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🖼 Gomasio Photos</h1>
+  <a class="back" href="./">← ボードに戻る</a>
+</header>
+<div id="status">読み込み中…</div>
+<div class="grid" id="grid"></div>
+<div id="viewer">
+  <img id="big" alt="">
+  <div class="bar">
+    <button id="prev">◀</button>
+    <button id="play">▶ 自動</button>
+    <span id="count"></span>
+    <button id="next">▶</button>
+    <button id="close">✕ 閉じる</button>
+  </div>
+</div>
+<script>
+const FILES = [
+  "photos/p1.txt", "photos/p2.txt", "photos/p3.txt",
+  "photos/p4.txt", "photos/p5.txt", "photos/p6.txt"
+];
+const grid = document.getElementById("grid");
+const viewer = document.getElementById("viewer");
+const big = document.getElementById("big");
+const count = document.getElementById("count");
+const urls = new Array(FILES.length).fill(null);
+let idx = 0, timer = null;
+
+async function loadAll() {
+  let done = 0;
+  await Promise.all(FILES.map(async (f, i) => {
+    try {
+      const t = await (await fetch(f)).text();
+      urls[i] = "data:image/webp;base64," + t.trim();
+      const img = document.createElement("img");
+      img.src = urls[i];
+      img.alt = "";
+      img.addEventListener("click", () => open(i));
+      grid.appendChild(img);
+    } catch (e) { /* skip broken photo */ }
+    done++;
+    document.getElementById("status").textContent =
+      done === FILES.length ? "" : "読み込み中… " + done + "/" + FILES.length;
+  }));
+}
+function show() {
+  big.src = urls[idx];
+  count.textContent = (idx + 1) + " / " + urls.length;
+}
+function open(i) { idx = i; viewer.classList.add("on"); show(); }
+function close() { stop(); viewer.classList.remove("on"); }
+function step(d) { idx = (idx + d + urls.length) % urls.length; show(); }
+function play() {
+  if (timer) { stop(); return; }
+  document.getElementById("play").textContent = "⏸ 停止";
+  timer = setInterval(() => step(1), 5000);
+}
+function stop() {
+  if (timer) { clearInterval(timer); timer = null; }
+  document.getElementById("play").textContent = "▶ 自動";
+}
+document.getElementById("prev").addEventListener("click", () => step(-1));
+document.getElementById("next").addEventListener("click", () => step(1));
+document.getElementById("play").addEventListener("click", play);
+document.getElementById("close").addEventListener("click", close);
+big.addEventListener("click", () => step(1));
+document.addEventListener("keydown", e => {
+  if (!viewer.classList.contains("on")) return;
+  if (e.key === "ArrowRight") step(1);
+  if (e.key === "ArrowLeft") step(-1);
+  if (e.key === "Escape") close();
+});
+loadAll();
+</script>
+</body>
+</html>
