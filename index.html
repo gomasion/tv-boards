@@ -65,7 +65,7 @@ function renderSale(items) {
   const el = document.getElementById("sale-list");
   if (!items.length) { el.innerHTML = '<div class="empty">現在セール中のアイテムはありません</div>'; return; }
   el.innerHTML = items.map(it => `
-    <div class="card sale-card">
+    <a class="card sale-card" ${it.url ? `href="${esc(it.url)}"` : ""} style="text-decoration:none;color:inherit;">
       ${it.imageData ? `<img src="data:image/jpeg;base64,${it.imageData}" alt="">` : ""}
       <div>
         <div class="name">${esc(it.name)}</div>
@@ -74,17 +74,17 @@ function renderSale(items) {
         ${it.until ? `<span class="until">${esc(it.until)}</span>` : ""}
         ${it.note ? `<div class="note">${esc(it.note)}</div>` : ""}
       </div>
-    </div>`).join("");
+    </a>`).join("");
 }
 function renderCache(items) {
   const el = document.getElementById("cache-list");
   if (!items.length) { el.innerHTML = '<div class="empty">新着キャッシュはありません</div>'; return; }
   el.innerHTML = items.map(it => `
-    <div class="card">
+    <a class="card" ${it.url ? `href="${esc(it.url)}"` : ""} style="text-decoration:none;color:inherit;display:block;">
       <div class="name">${esc(it.name)}</div>
       <div class="gc">${esc(it.gccode)}${it.distance ? " ・ 自宅から " + esc(it.distance) : ""}</div>
       <div class="meta">${it.owner ? "オーナー: " + esc(it.owner) : ""}${it.date ? " ・ 公開: " + esc(it.date) : ""}${it.location ? " ・ " + esc(it.location) : ""}</div>
-    </div>`).join("");
+    </a>`).join("");
 }
 function refresh() {
   load("saleboard.json", renderSale, "sale-updated");
