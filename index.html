@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gomasio Boards</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #0e1319; color: #eef2f5; font-family: "Hiragino Sans", "Noto Sans JP", sans-serif; }
+  header { padding: 28px 36px 8px; }
+  h1 { margin: 0; font-size: 40px; letter-spacing: .02em; }
+  .sub { color: #9fb0bd; margin-top: 6px; font-size: 17px; }
+  main { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; padding: 20px 36px 40px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  section h2 { font-size: 27px; margin: 6px 0 4px; }
+  .updated { color: #9fb0bd; font-size: 15px; margin-bottom: 14px; }
+  .card { background: #1a232e; border-radius: 14px; padding: 18px 20px; margin-bottom: 16px; }
+  .sale-card { display: flex; gap: 18px; }
+  .sale-card img { width: 150px; height: 150px; object-fit: cover; border-radius: 10px; flex: none; background: #0a0e13; }
+  .name { font-size: 23px; font-weight: 700; line-height: 1.35; }
+  .shop { color: #c3ced7; font-size: 16px; margin-top: 3px; }
+  .price { color: #ffb03a; font-size: 24px; font-weight: 800; margin-top: 8px; }
+  .was { color: #8b98a5; text-decoration: line-through; font-size: 17px; margin-left: 8px; font-weight: 400; }
+  .until { display: inline-block; background: #5a2c14; color: #ffb03a; border-radius: 7px; padding: 2px 10px; font-size: 15px; margin-top: 8px; }
+  .note { color: #c3ced7; font-size: 15px; margin-top: 8px; }
+  .gc { color: #7fe2a0; font-size: 20px; font-weight: 700; margin-top: 6px; }
+  .meta { color: #9fb0bd; font-size: 16px; margin-top: 4px; }
+  .empty { color: #9fb0bd; font-size: 18px; padding: 14px 0; }
+  footer { color: #5f7182; font-size: 13px; padding: 0 36px 26px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>📺 Gomasio Boards</h1>
+  <div class="sub">セール情報と新着キャッシュ（テレビと同じデータ・自動更新）</div>
+</header>
+<main>
+  <section>
+    <h2>🛍 セールボード</h2>
+    <div class="updated" id="sale-updated">読み込み中…</div>
+    <div id="sale-list"></div>
+  </section>
+  <section>
+    <h2>🗺 新着キャッシュ</h2>
+    <div class="updated" id="cache-updated">読み込み中…</div>
+    <div id="cache-list"></div>
+  </section>
+</main>
+<footer>出典: BOOTH / Geocaching 通知メール ・ データ: github.com/gomasion/tv-boards</footer>
+<script>
+const BASE = "https://raw.githubusercontent.com/gomasion/tv-boards/main/";
+function esc(s) { const d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML; }
+async function load(name, render, updEl) {
+  try {
+    const r = await fetch(BASE + name, { cache: "no-store" });
+    const j = await r.json();
+    document.getElementById(updEl).textContent = "更新: " + (j.updated || "");
+    render(j.items || []);
+  } catch (e) {
+    document.getElementById(updEl).textContent = "読み込みに失敗しました";
+  }
+}
+function renderSale(items) {
+  const el = document.getElementById("sale-list");
+  if (!items.length) { el.innerHTML = '<div class="empty">現在セール中のアイテムはありません</div>'; return; }
+  el.innerHTML = items.map(it => `
+    <div class="card sale-card">
+      ${it.imageData ? `<img src="${it.imageData}" alt="">` : ""}
+      <div>
+        <div class="name">${esc(it.name)}</div>
+        <div class="shop">${esc(it.shop)}</div>
+        <div class="price">${esc(it.price)}${it.was ? `<span class="was">${esc(it.was)}</span>` : ""}</div>
+        ${it.until ? `<span class="until">${esc(it.until)}</span>` : ""}
+        ${it.note ? `<div class="note">${esc(it.note)}</div>` : ""}
+      </div>
+    </div>`).join("");
+}
+function renderCache(items) {
+  const el = document.getElementById("cache-list");
+  if (!items.length) { el.innerHTML = '<div class="empty">新着キャッシュはありません</div>'; return; }
+  el.innerHTML = items.map(it => `
+    <div class="card">
+      <div class="name">${esc(it.name)}</div>
+      <div class="gc">${esc(it.gccode)}${it.distance ? " ・ 自宅から " + esc(it.distance) : ""}</div>
+      <div class="meta">${it.owner ? "オーナー: " + esc(it.owner) : ""}${it.date ? " ・ 公開: " + esc(it.date) : ""}${it.location ? " ・ " + esc(it.location) : ""}</div>
+    </div>`).join("");
+}
+function refresh() {
+  load("saleboard.json", renderSale, "sale-updated");
+  load("cacheboard.json", renderCache, "cache-updated");
+}
+refresh();
+setInterval(refresh, 5 * 60 * 1000);
+</script>
+</body>
+</html>
