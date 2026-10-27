@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quest 3D / AR</title>
+<style>
+  body { margin: 0; background: #0b0e12; color: #eef2f5; font-family: "Hiragino Sans", "Noto Sans JP", sans-serif; }
+  header { padding: 20px 28px 0; display: flex; gap: 22px; align-items: baseline; }
+  h1 { margin: 0; font-size: 30px; }
+  a.back { color: #8fd0ff; font-size: 17px; text-decoration: none; }
+  p.note { color: #aeb9c4; padding: 6px 28px 0; font-size: 16px; line-height: 1.6; }
+  #status { padding: 0 28px; color: #8b98a5; font-size: 15px; }
+  model-viewer { width: 100vw; height: 68vh; background: #10161d; }
+  button[slot="ar-button"] { position: absolute; left: 50%; transform: translateX(-50%); bottom: 26px; font-size: 24px; font-weight: 700; padding: 16px 34px; border-radius: 14px; border: 0; background: #2b6cb0; color: #fff; }
+</style>
+<script type="module" src="https://cdn.jsdelivr.net/npm/@google/model-viewer@3.5.0/dist/model-viewer.min.js"></script>
+</head>
+<body>
+<header><h1>🧊 3Dモデル AR</h1><a class="back" href="./">← ボードに戻る</a></header>
+<p class="note">「部屋の中に置く」をタップするとパススルーが始まって、床や机の上にモデルを置けます。コントローラーで場所を決めてトリガーで確定。</p>
+<div id="status">モデル読み込み中…</div>
+<model-viewer id="mv" ar ar-modes="webxr scene-viewer quick-look" camera-controls auto-rotate shadow-intensity="1" alt="3D model">
+  <button slot="ar-button">🏠 部屋の中に置く</button>
+</model-viewer>
+<script>
+(async () => {
+  const status = document.getElementById("status");
+  try {
+    const b64 = (await (await fetch("model.txt")).text()).trim();
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const url = URL.createObjectURL(new Blob([bytes], { type: "model/gltf-binary" }));
+    document.getElementById("mv").src = url;
+    status.textContent = "";
+  } catch (e) {
+    status.textContent = "モデルを読み込めませんでした: " + e;
+  }
+})();
+</script>
+</body>
+</html>
