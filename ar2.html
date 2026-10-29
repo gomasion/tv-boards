@@ -102,6 +102,11 @@ let hitTestSource = null;
 let refSpace = null;
 let placed = false;
 let dragSource = null;
+// 瞬き用
+let blinkTargets = [];
+let lastBlinkName = null;
+let nextBlinkAt = 0;
+let blinkStart = -1;
 
 function setStatus(t) { statusEl.textContent = t; }
 function setOv(t) { ovStatus.textContent = t; }
@@ -150,11 +155,31 @@ function fitModel(obj) {
   return wrap;
 }
 
+function findBlinkTargets(root) {
+  blinkTargets = [];
+  lastBlinkName = null;
+  root.traverse((o) => {
+    if (o.isMesh && o.morphTargetDictionary) {
+      const names = Object.keys(o.morphTargetDictionary);
+      const picked = names.find(n => /vrc\.blink/i.test(n))
+        || names.find(n => /blink/i.test(n))
+        || names.find(n => n === 'eye_close');
+      if (picked) {
+        blinkTargets.push({ mesh: o, index: o.morphTargetDictionary[picked] });
+        lastBlinkName = picked;
+      }
+    }
+  });
+  blinkStart = -1;
+  nextBlinkAt = 0;
+}
+
 function setModel(obj) {
   if (model) { scene.remove(model); }
   model = fitModel(obj);
   model.visible = false;
   scene.add(model);
+  findBlinkTargets(model);
   arBtn.disabled = false;
 }
 
@@ -171,7 +196,9 @@ document.getElementById('file').addEventListener('change', async (e) => {
   setStatus('読み込み中: ' + f.name);
   try {
     await loadGLB(URL.createObjectURL(f));
-    setStatus('読み込み完了: ' + f.name + ' → 「ARで置く」を押してね');
+    setStatus('読み込み完了: ' + f.name
+      + (lastBlinkName ? '（瞬きモーフ: ' + lastBlinkName + ' あり）' : '（瞬きモーフなし）')
+      + ' → 「ARで置く」を押してね');
   } catch (err) {
     setStatus('読み込み失敗: ' + err.message);
   }
@@ -292,6 +319,23 @@ arBtn.addEventListener('click', async () => {
     if (frame) {
       const dt = Math.min(0.05, (time - lastT) / 1000 || 0);
       lastT = time;
+      // 瞬きアニメーション
+      if (blinkTargets.length) {
+        const now = time / 1000;
+        if (nextBlinkAt === 0) nextBlinkAt = now + 1.2;
+        if (blinkStart < 0 && now >= nextBlinkAt) blinkStart = now;
+        if (blinkStart >= 0) {
+          const t = (now - blinkStart) / 0.22;
+          if (t >= 1) {
+            blinkTargets.forEach(bt => { bt.mesh.morphTargetInfluences[bt.index] = 0; });
+            blinkStart = -1;
+            nextBlinkAt = now + 2.2 + Math.random() * 2.8;
+          } else {
+            const v = Math.sin(Math.PI * t);
+            blinkTargets.forEach(bt => { bt.mesh.morphTargetInfluences[bt.index] = v; });
+          }
+        }
+      }
       // スティック操作: 左=前後左右の移動 / 右=高さ・回転
       if (placed && model && session) {
         for (const src of session.inputSources) {
