@@ -110,6 +110,11 @@ let blinkStart = -1;
 // 呼吸用（上半身チェーンの微回転）
 let breathSet = [];
 let lastBreathName = null;
+// アイジッター用（GOROman EyeJitter移植）
+let eyeSet = [];
+let lastEyeName = null;
+let jitterQuat = new THREE.Quaternion();
+let nextJitterAt = 0;
 
 function setStatus(t) { statusEl.textContent = t; }
 function setOv(t) { ovStatus.textContent = t; }
@@ -223,6 +228,35 @@ function findBreathBone(root) {
   if (foundNames.length) lastBreathName = foundNames.join('+');
 }
 
+function findEyeBones(root) {
+  eyeSet = [];
+  lastEyeName = null;
+  const bones = [];
+  root.traverse((o) => {
+    if (o.isSkinnedMesh && o.skeleton) bones.push(...o.skeleton.bones);
+  });
+  const isEye = (n) => /eye/i.test(n) && !/lid|lash|brow/i.test(n);
+  const left = bones.find(b => isEye(b.name) && /(^|[^a-z])l([^a-z]|$)|left/i.test(b.name));
+  const right = bones.find(b => isEye(b.name) && /(^|[^a-z])r([^a-z]|$)|right/i.test(b.name));
+  root.updateMatrixWorld(true);
+  const found = [];
+  for (const b of [left, right]) {
+    if (!b) continue;
+    const parentWorld = new THREE.Quaternion();
+    if (b.parent) b.parent.getWorldQuaternion(parentWorld);
+    eyeSet.push({
+      bone: b,
+      baseLocal: b.quaternion.clone(),
+      parentWorld: parentWorld,
+      parentWorldInv: parentWorld.clone().invert()
+    });
+    found.push(b.name);
+  }
+  if (found.length) lastEyeName = found.join('/');
+  jitterQuat = new THREE.Quaternion();
+  nextJitterAt = 0;
+}
+
 function setModel(obj) {
   if (model) { scene.remove(model); }
   model = fitModel(obj);
@@ -230,6 +264,7 @@ function setModel(obj) {
   scene.add(model);
   findBlinkTargets(model);
   findBreathBone(model);
+  findEyeBones(model);
   arBtn.disabled = false;
 }
 
@@ -248,7 +283,8 @@ document.getElementById('file').addEventListener('change', async (e) => {
     await loadGLB(URL.createObjectURL(f));
     setStatus('読み込み完了: ' + f.name
       + (lastBlinkName ? '（瞬き: ' + lastBlinkName + '）' : '（瞬きなし）')
-      + (lastBreathName ? '（呼吸ボーン: ' + lastBreathName + '）' : '（呼吸ボーンなし）')
+      + (lastBreathName ? '（呼吸: ' + lastBreathName + '）' : '（呼吸なし）')
+      + (lastEyeName ? '（目: ' + lastEyeName + '）' : '（目ボーンなし）')
       + ' → 「ARで置く」を押してね');
   } catch (err) {
     setStatus('読み込み失敗: ' + err.message);
@@ -387,6 +423,24 @@ arBtn.addEventListener('click', async () => {
         for (const e of breathSet) {
           const q = new THREE.Quaternion().setFromAxisAngle(e.axis, e.amp * e.sign * v);
           e.bone.quaternion.copy(e.base).multiply(q);
+        }
+      }
+      // アイジッター（0.4〜2.0秒ごとに視線が小さく跳ぶ）
+      if (eyeSet.length) {
+        const nowJ = time / 1000;
+        if (nextJitterAt === 0) nextJitterAt = nowJ + 0.5;
+        if (nowJ >= nextJitterAt) {
+          const rx = (Math.random() * 2 - 1) * 0.001;
+          const ry = (Math.random() * 2 - 1) * 0.03;
+          const qy = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), ry);
+          const qx = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), rx);
+          jitterQuat = qy.multiply(qx);
+          nextJitterAt = nowJ + 0.4 + Math.random() * 1.6;
+        }
+        for (const e of eyeSet) {
+          const worldBase = e.parentWorld.clone().multiply(e.baseLocal);
+          const worldNew = jitterQuat.clone().multiply(worldBase);
+          e.bone.quaternion.copy(e.parentWorldInv.clone().multiply(worldNew));
         }
       }
       // 瞬きアニメーション
