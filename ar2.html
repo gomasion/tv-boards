@@ -53,7 +53,8 @@
   GLBファイルを選んでから「ARで置く」を押してね。<br>
   ① 視線の先の丸（レティクル）が床に合ったら、トリガーで配置。<br>
   ② 置いた後は、モデル付近をトリガー長押ししながら動かすと<b>ドラッグ移動</b>、<br>
-  画面下のボタンでも 前後左右・上下（高さ）・回転・大きさ を微調整できるよ。
+  画面下のボタン（コントローラの光線で指してトリガー）でも 前後左右・上下（高さ）・回転・大きさ を微調整できるよ。<br>
+  コントローラの<b>スティック</b>でも操作可：上下で高さ、左右で回転。
 </p>
 <label class="filebtn">📂 GLBファイルを選ぶ<input type="file" id="file" accept=".glb,.gltf" style="display:none"></label>
 <button id="arBtn" disabled>🏠 ARで置く</button>
@@ -286,8 +287,26 @@ arBtn.addEventListener('click', async () => {
     setOv('床に視線を合わせてトリガーで配置');
   });
 
+  let lastT = 0;
   renderer.setAnimationLoop((time, frame) => {
     if (frame) {
+      const dt = Math.min(0.05, (time - lastT) / 1000 || 0);
+      lastT = time;
+      // スティック操作: 上下=高さ / 左右=回転
+      if (placed && model && session) {
+        for (const src of session.inputSources) {
+          const gp = src.gamepad;
+          if (!gp || !gp.axes || gp.axes.length < 4) continue;
+          const ax = gp.axes[2];
+          const ay = gp.axes[3];
+          if (Math.abs(ay) > 0.35) {
+            model.position.y = Math.max(-0.2, Math.min(2.0, model.position.y - ay * dt * 0.35));
+          }
+          if (Math.abs(ax) > 0.35) {
+            model.rotation.y -= ax * dt * 1.4;
+          }
+        }
+      }
       // ヒットテストでレティクル更新
       if (!placed && hitTestSource) {
         const results = frame.getHitTestResults(hitTestSource);
