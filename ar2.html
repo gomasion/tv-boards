@@ -54,7 +54,7 @@
   ① 視線の先の丸（レティクル）が床に合ったら、トリガーで配置。<br>
   ② 置いた後は、モデル付近をトリガー長押ししながら動かすと<b>ドラッグ移動</b>、<br>
   画面下のボタン（コントローラの光線で指してトリガー）でも 前後左右・上下（高さ）・回転・大きさ を微調整できるよ。<br>
-  コントローラの<b>スティック</b>でも操作可：上下で高さ、左右で回転。
+  コントローラの<b>スティック</b>でも操作可：<b>左スティック</b>で前後左右の移動、<b>右スティック</b>は上下で高さ・左右で回転。
 </p>
 <label class="filebtn">📂 GLBファイルを選ぶ<input type="file" id="file" accept=".glb,.gltf" style="display:none"></label>
 <button id="arBtn" disabled>🏠 ARで置く</button>
@@ -204,7 +204,7 @@ function moveModel(dir) {
   if (!model || !placed) return;
   const step = 0.1;
   const fwd = cameraForward();
-  const right = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0)).negate();
+  const right = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0));
   if (dir === 'forward') model.position.addScaledVector(fwd, step);
   if (dir === 'back') model.position.addScaledVector(fwd, -step);
   if (dir === 'right') model.position.addScaledVector(right, step);
@@ -292,18 +292,27 @@ arBtn.addEventListener('click', async () => {
     if (frame) {
       const dt = Math.min(0.05, (time - lastT) / 1000 || 0);
       lastT = time;
-      // スティック操作: 上下=高さ / 左右=回転
+      // スティック操作: 左=前後左右の移動 / 右=高さ・回転
       if (placed && model && session) {
         for (const src of session.inputSources) {
           const gp = src.gamepad;
           if (!gp || !gp.axes || gp.axes.length < 4) continue;
           const ax = gp.axes[2];
           const ay = gp.axes[3];
-          if (Math.abs(ay) > 0.35) {
-            model.position.y = Math.max(-0.2, Math.min(2.0, model.position.y - ay * dt * 0.35));
-          }
-          if (Math.abs(ax) > 0.35) {
-            model.rotation.y -= ax * dt * 1.4;
+          if (src.handedness === 'left') {
+            if (Math.abs(ax) > 0.2 || Math.abs(ay) > 0.2) {
+              const fwd = cameraForward();
+              const right = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0));
+              model.position.addScaledVector(fwd, -ay * dt * 0.6);
+              model.position.addScaledVector(right, ax * dt * 0.6);
+            }
+          } else {
+            if (Math.abs(ay) > 0.35) {
+              model.position.y = Math.max(-0.2, Math.min(2.0, model.position.y - ay * dt * 0.35));
+            }
+            if (Math.abs(ax) > 0.35) {
+              model.rotation.y -= ax * dt * 1.4;
+            }
           }
         }
       }
