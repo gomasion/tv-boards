@@ -184,22 +184,40 @@ function findBreathBone(root) {
   root.traverse((o) => {
     if (o.isSkinnedMesh && o.skeleton) bones.push(...o.skeleton.bones);
   });
+  // amp: 満吸気時の回転量(rad)。マイナス=背側(胸を開く) / プラス=胸側
   const roles = [
-    { key: 'UpperChest', amp: 0.012, pat: /upper_?chest/i },
-    { key: 'Chest', amp: 0.016, pat: /(^|[^a-z])chest([^a-z]|$)/i },
-    { key: 'Spine', amp: 0.010, pat: /(^|[^a-z0-9])spine([^a-z0-9]|$)/i },
-    { key: 'Neck', amp: -0.006, pat: /(^|[^a-z])neck([^a-z]|$)/i },
-    { key: 'Head', amp: -0.004, pat: /(^|[^a-z])head([^a-z]|$)/i }
+    { key: 'Spine', amp: -0.030, pat: /(^|[^a-z0-9])spine([^a-z0-9]|$)/i },
+    { key: 'Chest', amp: -0.040, pat: /(^|[^a-z])chest([^a-z]|$)/i },
+    { key: 'UpperChest', amp: -0.025, pat: /upper_?chest/i },
+    { key: 'Neck', amp: 0.022, pat: /(^|[^a-z])neck([^a-z]|$)/i },
+    { key: 'Head', amp: 0.014, pat: /(^|[^a-z])head([^a-z]|$)/i }
   ];
+  root.updateMatrixWorld(true);
   const used = new Set();
   const foundNames = [];
+  const modelRight = new THREE.Vector3(1, 0, 0);
   for (const role of roles) {
     const b = bones.find(bn => !used.has(bn) && role.pat.test(bn.name));
-    if (b) {
-      used.add(b);
-      breathSet.push({ bone: b, base: b.quaternion.clone(), amp: role.amp });
-      foundNames.push(role.key);
+    if (!b) continue;
+    used.add(b);
+    // ローカル軸のうち「体の左右方向」に一番近い軸を回転軸として自動判定
+    const wq = new THREE.Quaternion();
+    b.getWorldQuaternion(wq);
+    const units = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1)];
+    let bestAxis = units[0];
+    let bestAbs = 0;
+    let bestSign = 1;
+    for (const u of units) {
+      const world = u.clone().applyQuaternion(wq);
+      const d = world.dot(modelRight);
+      if (Math.abs(d) > bestAbs) {
+        bestAbs = Math.abs(d);
+        bestAxis = u;
+        bestSign = d >= 0 ? 1 : -1;
+      }
     }
+    breathSet.push({ bone: b, base: b.quaternion.clone(), amp: role.amp, axis: bestAxis, sign: bestSign });
+    foundNames.push(role.key);
   }
   if (foundNames.length) lastBreathName = foundNames.join('+');
 }
@@ -351,15 +369,22 @@ arBtn.addEventListener('click', async () => {
     if (frame) {
       const dt = Math.min(0.05, (time - lastT) / 1000 || 0);
       lastT = time;
-      // 呼吸アニメーション（記事準拠: 3.8秒周期、上半身チェーンの微回転）
+      // 呼吸アニメーション（BreathController方式: 吸う1.4s→吐く1.8s→休止0.6s = 3.8s周期）
       if (breathSet.length) {
         const nowB = time / 1000;
-        const phase = (nowB % 3.8) / 3.8;
-        const ease = (x) => x * x * (3 - 2 * x);
-        const v = phase < 0.4 ? ease(phase / 0.4) : 1 - ease((phase - 0.4) / 0.6);
-        const axisX = new THREE.Vector3(1, 0, 0);
+        const t = nowB % 3.8;
+        let v;
+        if (t < 1.4) {
+          v = Math.sin((t / 1.4) * Math.PI / 2); // EaseOutSine
+        } else if (t < 3.2) {
+          const u = (t - 1.4) / 1.8;
+          const eio = u < 0.5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2; // EaseInOutQuad
+          v = 1 - eio;
+        } else {
+          v = 0; // 休止期
+        }
         for (const e of breathSet) {
-          const q = new THREE.Quaternion().setFromAxisAngle(axisX, e.amp * v);
+          const q = new THREE.Quaternion().setFromAxisAngle(e.axis, e.amp * e.sign * v);
           e.bone.quaternion.copy(e.base).multiply(q);
         }
       }
