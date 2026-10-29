@@ -302,10 +302,10 @@ function findPoseBones(root) {
     return { bone: b, baseLocal: b.quaternion.clone(), parentWorld: parentWorld, parentWorldInv: parentWorld.clone().invert() };
   };
   root.updateMatrixWorld(true);
-  armBones.upperL = entry(bones.find(b => /upper_?arm/i.test(b.name) && isL(b.name)));
-  armBones.upperR = entry(bones.find(b => /upper_?arm/i.test(b.name) && isR(b.name)));
-  armBones.foreL = entry(bones.find(b => /fore_?arm|lower_?arm/i.test(b.name) && isL(b.name)));
-  armBones.foreR = entry(bones.find(b => /fore_?arm|lower_?arm/i.test(b.name) && isR(b.name)));
+  armBones.upperL = entry(bones.find(b => /upper_?arm/i.test(b.name) && !/support/i.test(b.name) && isL(b.name)));
+  armBones.upperR = entry(bones.find(b => /upper_?arm/i.test(b.name) && !/support/i.test(b.name) && isR(b.name)));
+  armBones.foreL = entry(bones.find(b => /fore_?arm|lower_?arm/i.test(b.name) && !/support/i.test(b.name) && isL(b.name)));
+  armBones.foreR = entry(bones.find(b => /fore_?arm|lower_?arm/i.test(b.name) && !/support/i.test(b.name) && isR(b.name)));
   hipsEntry = entry(bones.find(b => /(^|[^a-z])hips([^a-z]|$)/i.test(b.name)));
   if (armBones.upperL || armBones.upperR) lastPoseName = '立ち';
 }
