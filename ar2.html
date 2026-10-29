@@ -107,9 +107,8 @@ let blinkTargets = [];
 let lastBlinkName = null;
 let nextBlinkAt = 0;
 let blinkStart = -1;
-// 呼吸用
-let breathBone = null;
-let breathBase = null;
+// 呼吸用（上半身チェーンの微回転）
+let breathSet = [];
 let lastBreathName = null;
 
 function setStatus(t) { statusEl.textContent = t; }
@@ -179,23 +178,30 @@ function findBlinkTargets(root) {
 }
 
 function findBreathBone(root) {
-  breathBone = null;
-  breathBase = null;
+  breathSet = [];
   lastBreathName = null;
   const bones = [];
   root.traverse((o) => {
     if (o.isSkinnedMesh && o.skeleton) bones.push(...o.skeleton.bones);
   });
-  const pats = [/upper_?chest/i, /chest/i];
-  for (const pat of pats) {
-    const b = bones.find(bn => pat.test(bn.name));
+  const roles = [
+    { key: 'UpperChest', amp: 0.012, pat: /upper_?chest/i },
+    { key: 'Chest', amp: 0.016, pat: /(^|[^a-z])chest([^a-z]|$)/i },
+    { key: 'Spine', amp: 0.010, pat: /(^|[^a-z0-9])spine([^a-z0-9]|$)/i },
+    { key: 'Neck', amp: -0.006, pat: /(^|[^a-z])neck([^a-z]|$)/i },
+    { key: 'Head', amp: -0.004, pat: /(^|[^a-z])head([^a-z]|$)/i }
+  ];
+  const used = new Set();
+  const foundNames = [];
+  for (const role of roles) {
+    const b = bones.find(bn => !used.has(bn) && role.pat.test(bn.name));
     if (b) {
-      breathBone = b;
-      breathBase = b.scale.clone();
-      lastBreathName = b.name;
-      break;
+      used.add(b);
+      breathSet.push({ bone: b, base: b.quaternion.clone(), amp: role.amp });
+      foundNames.push(role.key);
     }
   }
+  if (foundNames.length) lastBreathName = foundNames.join('+');
 }
 
 function setModel(obj) {
@@ -345,17 +351,17 @@ arBtn.addEventListener('click', async () => {
     if (frame) {
       const dt = Math.min(0.05, (time - lastT) / 1000 || 0);
       lastT = time;
-      // 呼吸アニメーション（胸ボーンをゆっくり膨らませる）
-      if (breathBone && breathBase) {
+      // 呼吸アニメーション（記事準拠: 3.8秒周期、上半身チェーンの微回転）
+      if (breathSet.length) {
         const nowB = time / 1000;
-        const phase = (nowB % 4.4) / 4.4;
+        const phase = (nowB % 3.8) / 3.8;
         const ease = (x) => x * x * (3 - 2 * x);
         const v = phase < 0.4 ? ease(phase / 0.4) : 1 - ease((phase - 0.4) / 0.6);
-        breathBone.scale.set(
-          breathBase.x * (1 + 0.02 * v),
-          breathBase.y * (1 + 0.008 * v),
-          breathBase.z * (1 + 0.02 * v)
-        );
+        const axisX = new THREE.Vector3(1, 0, 0);
+        for (const e of breathSet) {
+          const q = new THREE.Quaternion().setFromAxisAngle(axisX, e.amp * v);
+          e.bone.quaternion.copy(e.base).multiply(q);
+        }
       }
       // 瞬きアニメーション
       if (blinkTargets.length) {
