@@ -293,8 +293,10 @@ function findPoseBones(root) {
   root.traverse((o) => {
     if (o.isSkinnedMesh && o.skeleton) bones.push(...o.skeleton.bones);
   });
-  const isL = (n) => /(^|[^a-z])l([^a-z]|$)|left/i.test(n);
-  const isR = (n) => /(^|[^a-z])r([^a-z]|$)|right/i.test(n);
+  // three.jsは読み込み時にボーン名のドット等を除去する（Upper_arm.L→Upper_armL）ため記号を抜いて照合
+  const simp = (n) => n.replace(/[^a-z0-9]/gi, '').toLowerCase();
+  const isL = (n) => { const s = simp(n); return s.includes('left') || /(^|[^a-z])l([^a-z]|$)/.test(n) || s.endsWith('l'); };
+  const isR = (n) => { const s = simp(n); return s.includes('right') || /(^|[^a-z])r([^a-z]|$)/.test(n) || s.endsWith('r'); };
   const entry = (b) => {
     if (!b) return null;
     const parentWorld = new THREE.Quaternion();
@@ -302,10 +304,10 @@ function findPoseBones(root) {
     return { bone: b, baseLocal: b.quaternion.clone(), parentWorld: parentWorld, parentWorldInv: parentWorld.clone().invert() };
   };
   root.updateMatrixWorld(true);
-  armBones.upperL = entry(bones.find(b => /upper_?arm/i.test(b.name) && !/support/i.test(b.name) && isL(b.name)));
-  armBones.upperR = entry(bones.find(b => /upper_?arm/i.test(b.name) && !/support/i.test(b.name) && isR(b.name)));
-  armBones.foreL = entry(bones.find(b => /fore_?arm|lower_?arm/i.test(b.name) && !/support/i.test(b.name) && isL(b.name)));
-  armBones.foreR = entry(bones.find(b => /fore_?arm|lower_?arm/i.test(b.name) && !/support/i.test(b.name) && isR(b.name)));
+  armBones.upperL = entry(bones.find(b => simp(b.name).includes('upperarm') && !/support/i.test(b.name) && isL(b.name)));
+  armBones.upperR = entry(bones.find(b => simp(b.name).includes('upperarm') && !/support/i.test(b.name) && isR(b.name)));
+  armBones.foreL = entry(bones.find(b => (simp(b.name).includes('lowerarm') || simp(b.name).includes('forearm')) && !/support/i.test(b.name) && isL(b.name)));
+  armBones.foreR = entry(bones.find(b => (simp(b.name).includes('lowerarm') || simp(b.name).includes('forearm')) && !/support/i.test(b.name) && isR(b.name)));
   hipsEntry = entry(bones.find(b => /(^|[^a-z])hips([^a-z]|$)/i.test(b.name)));
   if (armBones.upperL || armBones.upperR) lastPoseName = '立ち';
 }
