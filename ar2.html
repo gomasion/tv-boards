@@ -53,7 +53,7 @@
   GLBファイルを選んでから「ARで置く」を押してね。<br>
   ① 視線の先の丸（レティクル）が床に合ったら、トリガーで配置。<br>
   ② 置いた後は、モデル付近をトリガー長押ししながら動かすと<b>ドラッグ移動</b>、<br>
-  画面下のボタンでも 前後左右・回転・大きさ を微調整できるよ。
+  画面下のボタンでも 前後左右・上下（高さ）・回転・大きさ を微調整できるよ。
 </p>
 <label class="filebtn">📂 GLBファイルを選ぶ<input type="file" id="file" accept=".glb,.gltf" style="display:none"></label>
 <button id="arBtn" disabled>🏠 ARで置く</button>
@@ -71,6 +71,8 @@
       <button data-move="right">右</button>
     </div>
     <div>
+      <button data-height="up">⬆ 上</button>
+      <button data-height="down">⬇ 下</button>
       <button data-rot="-1">↩ 回転</button>
       <button data-rot="1">回転 ↪</button>
       <button data-scale="up">大きく</button>
@@ -210,6 +212,13 @@ function moveModel(dir) {
 
 overlay.querySelectorAll('[data-move]').forEach(b => {
   b.addEventListener('click', () => moveModel(b.dataset.move));
+});
+overlay.querySelectorAll('[data-height]').forEach(b => {
+  b.addEventListener('click', () => {
+    if (!model || !placed) return;
+    const d = b.dataset.height === 'up' ? 0.05 : -0.05;
+    model.position.y = Math.max(-0.2, Math.min(2.0, model.position.y + d));
+  });
 });
 overlay.querySelectorAll('[data-rot]').forEach(b => {
   b.addEventListener('click', () => {
