@@ -435,7 +435,7 @@ arBtn.addEventListener('click', async () => {
           const qy = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), ry);
           const qx = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), rx);
           jitterQuat = qy.multiply(qx);
-          nextJitterAt = nowJ + 0.4 + Math.random() * 1.6;
+          nextJitterAt = nowJ + 0.3 + Math.random() * 1.2;
         }
         for (const e of eyeSet) {
           const worldBase = e.parentWorld.clone().multiply(e.baseLocal);
