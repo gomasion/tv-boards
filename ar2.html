@@ -121,7 +121,7 @@ let lookHead = null;
 let smEyeYaw = 0, smEyePitch = 0, smHeadYaw = 0, smHeadPitch = 0, smNeckYaw = 0, smNeckPitch = 0;
 // ポーズ用（自然な立ちポーズ＋待機の揺れ）
 let armBones = { upperL: null, upperR: null, foreL: null, foreR: null };
-let hipsEntry = null;
+let swayEntry = null;
 let lastPoseName = null;
 
 function setStatus(t) { statusEl.textContent = t; }
@@ -287,7 +287,7 @@ function findLookBones(root) {
 
 function findPoseBones(root) {
   armBones = { upperL: null, upperR: null, foreL: null, foreR: null };
-  hipsEntry = null;
+  swayEntry = null;
   lastPoseName = null;
   const bones = [];
   root.traverse((o) => {
@@ -308,7 +308,7 @@ function findPoseBones(root) {
   armBones.upperR = entry(bones.find(b => simp(b.name).includes('upperarm') && !/support/i.test(b.name) && isR(b.name)));
   armBones.foreL = entry(bones.find(b => (simp(b.name).includes('lowerarm') || simp(b.name).includes('forearm')) && !/support/i.test(b.name) && isL(b.name)));
   armBones.foreR = entry(bones.find(b => (simp(b.name).includes('lowerarm') || simp(b.name).includes('forearm')) && !/support/i.test(b.name) && isR(b.name)));
-  hipsEntry = entry(bones.find(b => /(^|[^a-z])hips([^a-z]|$)/i.test(b.name)));
+  swayEntry = entry(bones.find(b => /(^|[^a-z0-9])spine([^a-z0-9]|$)/i.test(b.name)));
   if (armBones.upperL || armBones.upperR) lastPoseName = '立ち';
 }
 
@@ -488,16 +488,6 @@ arBtn.addEventListener('click', async () => {
     if (frame) {
       const dt = Math.min(0.05, (time - lastT) / 1000 || 0);
       lastT = time;
-      // 待機の揺れ（体重移動のような微妙な揺れ）
-      if (placed && hipsEntry) {
-        const nowS = time / 1000;
-        const roll = Math.sin(nowS * Math.PI * 2 / 6.5) * 0.010;
-        const pitch = Math.sin(nowS * Math.PI * 2 / 9.3 + 1.3) * 0.006;
-        const r = new THREE.Quaternion().setFromEuler(new THREE.Euler(pitch, 0, roll, 'YXZ'));
-        hipsEntry.bone.quaternion.copy(
-          hipsEntry.parentWorldInv.clone().multiply(r).multiply(hipsEntry.parentWorld).multiply(hipsEntry.baseLocal)
-        );
-      }
       // 呼吸アニメーション（BreathController方式: 吸う1.4s→吐く1.8s→休止0.6s = 3.8s周期）
       if (breathSet.length) {
         const nowB = time / 1000;
@@ -516,6 +506,17 @@ arBtn.addEventListener('click', async () => {
           const q = new THREE.Quaternion().setFromAxisAngle(e.axis, e.amp * e.sign * v);
           e.bone.quaternion.copy(e.base).multiply(q);
         }
+      }
+      // 待機の揺れ（Spineにだけ上乗せ。下半身には触らないので足は滑らない）
+      if (placed && swayEntry) {
+        const nowS = time / 1000;
+        const roll = Math.sin(nowS * Math.PI * 2 / 6.5) * 0.008;
+        const pitch = Math.sin(nowS * Math.PI * 2 / 9.3 + 1.3) * 0.005;
+        const r = new THREE.Quaternion().setFromEuler(new THREE.Euler(pitch, 0, roll, 'YXZ'));
+        const cur = swayEntry.bone.quaternion.clone();
+        swayEntry.bone.quaternion.copy(
+          swayEntry.parentWorldInv.clone().multiply(r).multiply(swayEntry.parentWorld).multiply(cur)
+        );
       }
       // 視線（カメラを見る: 目が主体、首と頭が遅れて少しついてくる）
       let rEye = null;
