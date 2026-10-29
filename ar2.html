@@ -186,7 +186,7 @@ function findBreathBone(root) {
   root.traverse((o) => {
     if (o.isSkinnedMesh && o.skeleton) bones.push(...o.skeleton.bones);
   });
-  const pats = [/upper_?chest/i, /chest/i, /spine_?2/i, /spine_?1/i, /spine/i];
+  const pats = [/upper_?chest/i, /chest/i];
   for (const pat of pats) {
     const b = bones.find(bn => pat.test(bn.name));
     if (b) {
@@ -352,9 +352,9 @@ arBtn.addEventListener('click', async () => {
         const ease = (x) => x * x * (3 - 2 * x);
         const v = phase < 0.4 ? ease(phase / 0.4) : 1 - ease((phase - 0.4) / 0.6);
         breathBone.scale.set(
-          breathBase.x * (1 + 0.028 * v),
-          breathBase.y * (1 + 0.012 * v),
-          breathBase.z * (1 + 0.028 * v)
+          breathBase.x * (1 + 0.02 * v),
+          breathBase.y * (1 + 0.008 * v),
+          breathBase.z * (1 + 0.02 * v)
         );
       }
       // 瞬きアニメーション
