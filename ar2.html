@@ -119,6 +119,10 @@ let nextJitterAt = 0;
 let lookNeck = null;
 let lookHead = null;
 let smEyeYaw = 0, smEyePitch = 0, smHeadYaw = 0, smHeadPitch = 0, smNeckYaw = 0, smNeckPitch = 0;
+// ポーズ用（自然な立ちポーズ＋待機の揺れ）
+let armBones = { upperL: null, upperR: null, foreL: null, foreR: null };
+let hipsEntry = null;
+let lastPoseName = null;
 
 function setStatus(t) { statusEl.textContent = t; }
 function setOv(t) { ovStatus.textContent = t; }
@@ -281,6 +285,54 @@ function findLookBones(root) {
   smEyeYaw = 0; smEyePitch = 0; smHeadYaw = 0; smHeadPitch = 0; smNeckYaw = 0; smNeckPitch = 0;
 }
 
+function findPoseBones(root) {
+  armBones = { upperL: null, upperR: null, foreL: null, foreR: null };
+  hipsEntry = null;
+  lastPoseName = null;
+  const bones = [];
+  root.traverse((o) => {
+    if (o.isSkinnedMesh && o.skeleton) bones.push(...o.skeleton.bones);
+  });
+  const isL = (n) => /(^|[^a-z])l([^a-z]|$)|left/i.test(n);
+  const isR = (n) => /(^|[^a-z])r([^a-z]|$)|right/i.test(n);
+  const entry = (b) => {
+    if (!b) return null;
+    const parentWorld = new THREE.Quaternion();
+    if (b.parent) b.parent.getWorldQuaternion(parentWorld);
+    return { bone: b, baseLocal: b.quaternion.clone(), parentWorld: parentWorld, parentWorldInv: parentWorld.clone().invert() };
+  };
+  root.updateMatrixWorld(true);
+  armBones.upperL = entry(bones.find(b => /upper_?arm/i.test(b.name) && isL(b.name)));
+  armBones.upperR = entry(bones.find(b => /upper_?arm/i.test(b.name) && isR(b.name)));
+  armBones.foreL = entry(bones.find(b => /fore_?arm|lower_?arm/i.test(b.name) && isL(b.name)));
+  armBones.foreR = entry(bones.find(b => /fore_?arm|lower_?arm/i.test(b.name) && isR(b.name)));
+  hipsEntry = entry(bones.find(b => /(^|[^a-z])hips([^a-z]|$)/i.test(b.name)));
+  if (armBones.upperL || armBones.upperR) lastPoseName = '立ち';
+}
+
+// Tポーズ→自然な立ちポーズ（腕を下ろして肘を少し曲げる）
+function applyStandingPose(root) {
+  const deg = THREE.MathUtils.degToRad;
+  const compose = (e, qModel) => {
+    e.bone.quaternion.copy(e.parentWorldInv.clone().multiply(qModel).multiply(e.parentWorld).multiply(e.baseLocal));
+  };
+  const qx = (a) => new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), a);
+  const qz = (a) => new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), a);
+  if (armBones.upperL) compose(armBones.upperL, qz(-deg(78)).multiply(qx(-deg(6))));
+  if (armBones.upperR) compose(armBones.upperR, qz(deg(78)).multiply(qx(-deg(6))));
+  // 前腕は上腕をポーズした後の座標で付け直す
+  root.updateMatrixWorld(true);
+  const recapture = (e) => {
+    if (!e) return;
+    if (e.bone.parent) e.bone.parent.getWorldQuaternion(e.parentWorld);
+    e.parentWorldInv.copy(e.parentWorld).invert();
+  };
+  recapture(armBones.foreL);
+  recapture(armBones.foreR);
+  if (armBones.foreL) compose(armBones.foreL, qx(-deg(12)));
+  if (armBones.foreR) compose(armBones.foreR, qx(-deg(12)));
+}
+
 function setModel(obj) {
   if (model) { scene.remove(model); }
   model = fitModel(obj);
@@ -290,6 +342,8 @@ function setModel(obj) {
   findBreathBone(model);
   findEyeBones(model);
   findLookBones(model);
+  findPoseBones(model);
+  applyStandingPose(model);
   arBtn.disabled = false;
 }
 
@@ -310,6 +364,7 @@ document.getElementById('file').addEventListener('change', async (e) => {
       + (lastBlinkName ? '（瞬き: ' + lastBlinkName + '）' : '（瞬きなし）')
       + (lastBreathName ? '（呼吸: ' + lastBreathName + '）' : '（呼吸なし）')
       + (lastEyeName ? '（目: ' + lastEyeName + '）' : '（目ボーンなし）')
+      + (lastPoseName ? '（ポーズ: ' + lastPoseName + '）' : '（ポーズなし）')
       + ' → 「ARで置く」を押してね');
   } catch (err) {
     setStatus('読み込み失敗: ' + err.message);
@@ -431,6 +486,16 @@ arBtn.addEventListener('click', async () => {
     if (frame) {
       const dt = Math.min(0.05, (time - lastT) / 1000 || 0);
       lastT = time;
+      // 待機の揺れ（体重移動のような微妙な揺れ）
+      if (placed && hipsEntry) {
+        const nowS = time / 1000;
+        const roll = Math.sin(nowS * Math.PI * 2 / 6.5) * 0.010;
+        const pitch = Math.sin(nowS * Math.PI * 2 / 9.3 + 1.3) * 0.006;
+        const r = new THREE.Quaternion().setFromEuler(new THREE.Euler(pitch, 0, roll, 'YXZ'));
+        hipsEntry.bone.quaternion.copy(
+          hipsEntry.parentWorldInv.clone().multiply(r).multiply(hipsEntry.parentWorld).multiply(hipsEntry.baseLocal)
+        );
+      }
       // 呼吸アニメーション（BreathController方式: 吸う1.4s→吐く1.8s→休止0.6s = 3.8s周期）
       if (breathSet.length) {
         const nowB = time / 1000;
