@@ -185,12 +185,13 @@ function findBreathBone(root) {
     if (o.isSkinnedMesh && o.skeleton) bones.push(...o.skeleton.bones);
   });
   // amp: 満吸気時の回転量(rad)。マイナス=背側(胸を開く) / プラス=胸側
+  // Neck+Headの合計は Spine+Chest+UpperChest の打ち消し（頭の向きを一定に保つ）
   const roles = [
-    { key: 'Spine', amp: -0.030, pat: /(^|[^a-z0-9])spine([^a-z0-9]|$)/i },
-    { key: 'Chest', amp: -0.040, pat: /(^|[^a-z])chest([^a-z]|$)/i },
-    { key: 'UpperChest', amp: -0.025, pat: /upper_?chest/i },
-    { key: 'Neck', amp: 0.022, pat: /(^|[^a-z])neck([^a-z]|$)/i },
-    { key: 'Head', amp: 0.014, pat: /(^|[^a-z])head([^a-z]|$)/i }
+    { key: 'Spine', amp: -0.015, pat: /(^|[^a-z0-9])spine([^a-z0-9]|$)/i },
+    { key: 'Chest', amp: -0.032, pat: /(^|[^a-z])chest([^a-z]|$)/i },
+    { key: 'UpperChest', amp: -0.020, pat: /upper_?chest/i },
+    { key: 'Neck', amp: 0.040, pat: /(^|[^a-z])neck([^a-z]|$)/i },
+    { key: 'Head', amp: 0.027, pat: /(^|[^a-z])head([^a-z]|$)/i }
   ];
   root.updateMatrixWorld(true);
   const used = new Set();
