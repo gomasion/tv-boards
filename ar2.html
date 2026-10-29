@@ -115,6 +115,10 @@ let eyeSet = [];
 let lastEyeName = null;
 let jitterQuat = new THREE.Quaternion();
 let nextJitterAt = 0;
+// 視線用（カメラを見る）
+let lookNeck = null;
+let lookHead = null;
+let smEyeYaw = 0, smEyePitch = 0, smHeadYaw = 0, smHeadPitch = 0, smNeckYaw = 0, smNeckPitch = 0;
 
 function setStatus(t) { statusEl.textContent = t; }
 function setOv(t) { ovStatus.textContent = t; }
@@ -257,6 +261,26 @@ function findEyeBones(root) {
   nextJitterAt = 0;
 }
 
+function findLookBones(root) {
+  lookNeck = null;
+  lookHead = null;
+  const bones = [];
+  root.traverse((o) => {
+    if (o.isSkinnedMesh && o.skeleton) bones.push(...o.skeleton.bones);
+  });
+  root.updateMatrixWorld(true);
+  const pick = (pat) => {
+    const b = bones.find(bn => pat.test(bn.name));
+    if (!b) return null;
+    const parentWorld = new THREE.Quaternion();
+    if (b.parent) b.parent.getWorldQuaternion(parentWorld);
+    return { bone: b, parentWorld: parentWorld, parentWorldInv: parentWorld.clone().invert() };
+  };
+  lookNeck = pick(/(^|[^a-z])neck([^a-z]|$)/i);
+  lookHead = pick(/(^|[^a-z])head([^a-z]|$)/i);
+  smEyeYaw = 0; smEyePitch = 0; smHeadYaw = 0; smHeadPitch = 0; smNeckYaw = 0; smNeckPitch = 0;
+}
+
 function setModel(obj) {
   if (model) { scene.remove(model); }
   model = fitModel(obj);
@@ -265,6 +289,7 @@ function setModel(obj) {
   findBlinkTargets(model);
   findBreathBone(model);
   findEyeBones(model);
+  findLookBones(model);
   arBtn.disabled = false;
 }
 
@@ -425,7 +450,52 @@ arBtn.addEventListener('click', async () => {
           e.bone.quaternion.copy(e.base).multiply(q);
         }
       }
-      // アイジッター（0.4〜2.0秒ごとに視線が小さく跳ぶ）
+      // 視線（カメラを見る: 目が主体、首と頭が遅れて少しついてくる）
+      let rEye = null;
+      if (placed && model && (eyeSet.length || lookHead)) {
+        model.updateMatrixWorld(true);
+        const camW = new THREE.Vector3();
+        camera.getWorldPosition(camW);
+        const camM = model.worldToLocal(camW.clone());
+        let headM = new THREE.Vector3(0, 1.35, 0);
+        if (lookHead) {
+          const hw = new THREE.Vector3();
+          lookHead.bone.getWorldPosition(hw);
+          headM = model.worldToLocal(hw);
+        }
+        const dir = camM.sub(headM);
+        if (dir.length() > 0.05) {
+          dir.normalize();
+          const yawT = Math.atan2(dir.x, dir.z);
+          const pitchT = Math.atan2(dir.y, Math.hypot(dir.x, dir.z));
+          const clamp = (v, a) => Math.max(-a, Math.min(a, v));
+          const hYawT = clamp(yawT * 0.35, 0.55);
+          const hPitchT = clamp(pitchT * 0.30, 0.22);
+          const nYawT = yawT * 0.15;
+          const nPitchT = pitchT * 0.12;
+          const eYawT = clamp(yawT - hYawT - nYawT, 0.50);
+          const ePitchT = clamp(pitchT - hPitchT - nPitchT, 0.30);
+          const kE = 1 - Math.exp(-dt / 0.08);
+          const kH = 1 - Math.exp(-dt / 0.35);
+          const kN = 1 - Math.exp(-dt / 0.25);
+          smEyeYaw += (eYawT - smEyeYaw) * kE;
+          smEyePitch += (ePitchT - smEyePitch) * kE;
+          smHeadYaw += (hYawT - smHeadYaw) * kH;
+          smHeadPitch += (hPitchT - smHeadPitch) * kH;
+          smNeckYaw += (nYawT - smNeckYaw) * kN;
+          smNeckPitch += (nPitchT - smNeckPitch) * kN;
+          const applyLook = (e, yaw, pitch) => {
+            if (!e) return;
+            const r = new THREE.Quaternion().setFromEuler(new THREE.Euler(-pitch, yaw, 0, 'YXZ'));
+            const cur = e.bone.quaternion.clone();
+            e.bone.quaternion.copy(e.parentWorldInv.clone().multiply(r).multiply(e.parentWorld).multiply(cur));
+          };
+          applyLook(lookNeck, smNeckYaw, smNeckPitch);
+          applyLook(lookHead, smHeadYaw, smHeadPitch);
+          rEye = new THREE.Quaternion().setFromEuler(new THREE.Euler(-smEyePitch, smEyeYaw, 0, 'YXZ'));
+        }
+      }
+      // アイジッター（視線の上に小さく跳ぶ）
       if (eyeSet.length) {
         const nowJ = time / 1000;
         if (nextJitterAt === 0) nextJitterAt = nowJ + 0.5;
@@ -439,7 +509,9 @@ arBtn.addEventListener('click', async () => {
         }
         for (const e of eyeSet) {
           const worldBase = e.parentWorld.clone().multiply(e.baseLocal);
-          const worldNew = jitterQuat.clone().multiply(worldBase);
+          let worldNew = jitterQuat.clone();
+          if (rEye) worldNew.multiply(rEye);
+          worldNew.multiply(worldBase);
           e.bone.quaternion.copy(e.parentWorldInv.clone().multiply(worldNew));
         }
       }
