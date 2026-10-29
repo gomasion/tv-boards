@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AR配置 v2（移動できる版）</title>
+<style>
+  body { font-family: sans-serif; margin: 16px; background: #111; color: #eee; }
+  h1 { font-size: 20px; }
+  button, label.filebtn {
+    font-size: 18px; padding: 12px 18px; margin: 6px 4px;
+    border-radius: 10px; border: none; background: #2b6cb0; color: #fff;
+    display: inline-block; cursor: pointer;
+  }
+  button:disabled { background: #555; }
+  #arBtn { background: #b7791f; font-size: 22px; padding: 16px 22px; }
+  #status { margin: 12px 0; color: #a0e7a0; min-height: 1.4em; }
+  .note { color: #bbb; font-size: 14px; line-height: 1.6; }
+  /* AR中に出る操作パネル */
+  #overlay {
+    position: fixed; inset: 0; pointer-events: none;
+    display: none; z-index: 10;
+  }
+  #overlay .panel {
+    position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%);
+    background: rgba(0,0,0,0.55); border-radius: 14px; padding: 10px;
+    text-align: center; pointer-events: auto;
+  }
+  #overlay button {
+    font-size: 20px; padding: 10px 14px; margin: 3px;
+    background: rgba(43,108,176,0.9);
+  }
+  #overlay .wide { background: rgba(183,121,31,0.9); }
+  #ovStatus {
+    position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.55); color: #a0e7a0; border-radius: 8px;
+    padding: 6px 14px; font-size: 16px; pointer-events: none;
+    white-space: nowrap;
+  }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<h1>🏠 部屋に置く v2（移動・回転できる版）</h1>
+<p class="note">
+  GLBファイルを選んでから「ARで置く」を押してね。<br>
+  ① 視線の先の丸（レティクル）が床に合ったら、トリガーで配置。<br>
+  ② 置いた後は、モデル付近をトリガー長押ししながら動かすと<b>ドラッグ移動</b>、<br>
+  画面下のボタンでも 前後左右・回転・大きさ を微調整できるよ。
+</p>
+<label class="filebtn">📂 GLBファイルを選ぶ<input type="file" id="file" accept=".glb,.gltf" style="display:none"></label>
+<button id="arBtn" disabled>🏠 ARで置く</button>
+<div id="status">まずGLBを選んでね（選ばない場合はサンプルの青い箱）</div>
+
+<div id="overlay">
+  <div id="ovStatus">床に視線を合わせてトリガーで配置</div>
+  <div class="panel">
+    <div>
+      <button data-move="forward">前</button>
+    </div>
+    <div>
+      <button data-move="left">左</button>
+      <button data-move="back">後</button>
+      <button data-move="right">右</button>
+    </div>
+    <div>
+      <button data-rot="-1">↩ 回転</button>
+      <button data-rot="1">回転 ↪</button>
+      <button data-scale="up">大きく</button>
+      <button data-scale="down">小さく</button>
+    </div>
+    <div>
+      <button id="replaceBtn" class="wide">置き直す</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+const statusEl = document.getElementById('status');
+const ovStatus = document.getElementById('ovStatus');
+const arBtn = document.getElementById('arBtn');
+const overlay = document.getElementById('overlay');
+
+let renderer, scene, camera;
+let model = null;
+let modelBaseY = 0;
+let reticle = null;
+let hitTestSource = null;
+let refSpace = null;
+let placed = false;
+let dragSource = null;
+
+function setStatus(t) { statusEl.textContent = t; }
+function setOv(t) { ovStatus.textContent = t; }
+
+function initThree() {
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.xr.enabled = true;
+  document.body.appendChild(renderer.domElement);
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 100);
+  const light = new THREE.HemisphereLight(0xffffff, 0x444444, 2.0);
+  scene.add(light);
+  const dir = new THREE.DirectionalLight(0xffffff, 1.5);
+  dir.position.set(1, 3, 2);
+  scene.add(dir);
+  // レティクル（配置ガイドの丸）
+  reticle = new THREE.Mesh(
+    new THREE.RingGeometry(0.09, 0.11, 32),
+    new THREE.MeshBasicMaterial({ color: 0x00ff88, side: THREE.DoubleSide })
+  );
+  reticle.rotation.x = -Math.PI / 2;
+  reticle.visible = false;
+  scene.add(reticle);
+}
+
+function fitModel(obj) {
+  const box = new THREE.Box3().setFromObject(obj);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  const center = new THREE.Vector3();
+  box.getCenter(center);
+  // 極端な大きさのモデルだけ身長1.4mに正規化
+  if (size.y > 3 || size.y < 0.3) {
+    const s = 1.4 / size.y;
+    obj.scale.setScalar(s);
+    box.setFromObject(obj);
+    box.getSize(size);
+    box.getCenter(center);
+  }
+  // 原点を足元中央へ
+  obj.position.sub(new THREE.Vector3(center.x, box.min.y, center.z));
+  const wrap = new THREE.Group();
+  wrap.add(obj);
+  return wrap;
+}
+
+function setModel(obj) {
+  if (model) { scene.remove(model); }
+  model = fitModel(obj);
+  model.visible = false;
+  scene.add(model);
+  arBtn.disabled = false;
+}
+
+async function loadGLB(url) {
+  const loader = new GLTFLoader();
+  const gltf = await loader.loadAsync(url);
+  setModel(gltf.scene);
+}
+
+// ファイル選択
+document.getElementById('file').addEventListener('change', async (e) => {
+  const f = e.target.files[0];
+  if (!f) return;
+  setStatus('読み込み中: ' + f.name);
+  try {
+    await loadGLB(URL.createObjectURL(f));
+    setStatus('読み込み完了: ' + f.name + ' → 「ARで置く」を押してね');
+  } catch (err) {
+    setStatus('読み込み失敗: ' + err.message);
+  }
+});
+
+// サンプルの青い箱（model.txt = base64 GLB）
+async function loadSample() {
+  try {
+    const res = await fetch('model.txt');
+    if (!res.ok) return;
+    const b64 = (await res.text()).trim();
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const url = URL.createObjectURL(new Blob([bytes], { type: 'model/gltf-binary' }));
+    await loadGLB(url);
+    setStatus('サンプルの青い箱を読み込んだよ。そのままARで置ける');
+  } catch (e) { /* サンプルが無くてもファイル選択で使える */ }
+}
+
+function cameraForward() {
+  const v = new THREE.Vector3();
+  camera.getWorldDirection(v);
+  v.y = 0;
+  if (v.lengthSq() < 1e-6) v.set(0, 0, -1);
+  return v.normalize();
+}
+
+function moveModel(dir) {
+  if (!model || !placed) return;
+  const step = 0.1;
+  const fwd = cameraForward();
+  const right = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0)).negate();
+  if (dir === 'forward') model.position.addScaledVector(fwd, step);
+  if (dir === 'back') model.position.addScaledVector(fwd, -step);
+  if (dir === 'right') model.position.addScaledVector(right, step);
+  if (dir === 'left') model.position.addScaledVector(right, -step);
+}
+
+overlay.querySelectorAll('[data-move]').forEach(b => {
+  b.addEventListener('click', () => moveModel(b.dataset.move));
+});
+overlay.querySelectorAll('[data-rot]').forEach(b => {
+  b.addEventListener('click', () => {
+    if (model && placed) model.rotation.y += parseInt(b.dataset.rot) * Math.PI / 12;
+  });
+});
+overlay.querySelectorAll('[data-scale]').forEach(b => {
+  b.addEventListener('click', () => {
+    if (!model || !placed) return;
+    const f = b.dataset.scale === 'up' ? 1.1 : 1 / 1.1;
+    model.scale.multiplyScalar(f);
+  });
+});
+document.getElementById('replaceBtn').addEventListener('click', () => {
+  placed = false;
+  if (model) model.visible = false;
+  setOv('床に視線を合わせてトリガーで配置');
+});
+
+arBtn.addEventListener('click', async () => {
+  if (!renderer) initThree();
+  if (!navigator.xr) { setStatus('このブラウザはWebXRに未対応'); return; }
+  let session;
+  try {
+    session = await navigator.xr.requestSession('immersive-ar', {
+      requiredFeatures: ['hit-test'],
+      optionalFeatures: ['dom-overlay', 'local-floor'],
+      domOverlay: { root: overlay }
+    });
+  } catch (e) {
+    setStatus('AR開始失敗: ' + e.message);
+    return;
+  }
+  overlay.style.display = 'block';
+  await renderer.xr.setSession(session);
+  try {
+    refSpace = await session.requestReferenceSpace('local');
+  } catch (e) {
+    refSpace = await session.requestReferenceSpace('viewer');
+  }
+  const viewerSpace = await session.requestReferenceSpace('viewer');
+  hitTestSource = await session.requestHitTestSource({ space: viewerSpace });
+
+  session.addEventListener('select', () => {
+    if (!placed && reticle.visible && model) {
+      model.position.setFromMatrixPosition(reticle.matrix);
+      // カメラの方を向く
+      const fwd = cameraForward();
+      model.rotation.y = Math.atan2(fwd.x, fwd.z) + Math.PI;
+      model.visible = true;
+      placed = true;
+      setOv('置けた！ドラッグかボタンで微調整できるよ');
+    }
+  });
+  session.addEventListener('selectstart', (e) => { dragSource = e.inputSource; });
+  session.addEventListener('selectend', () => {
+    if (dragSource) dragSource._dragging = false;
+    dragSource = null;
+  });
+  session.addEventListener('end', () => {
+    overlay.style.display = 'none';
+    placed = false;
+    dragSource = null;
+    if (model) model.visible = false;
+    setOv('床に視線を合わせてトリガーで配置');
+  });
+
+  renderer.setAnimationLoop((time, frame) => {
+    if (frame) {
+      // ヒットテストでレティクル更新
+      if (!placed && hitTestSource) {
+        const results = frame.getHitTestResults(hitTestSource);
+        if (results.length > 0) {
+          const pose = results[0].getPose(refSpace);
+          reticle.visible = true;
+          reticle.position.set(pose.transform.position.x, pose.transform.position.y, pose.transform.position.z);
+          reticle.updateMatrix();
+        } else {
+          reticle.visible = false;
+        }
+      } else {
+        reticle.visible = false;
+      }
+      // ドラッグ移動: コントローラのレイと床面(y=model位置)の交点へ
+      if (placed && dragSource && model) {
+        const pose = frame.getPose(dragSource.targetRaySpace, refSpace);
+        if (pose) {
+          const o = pose.transform.position;
+          const q = pose.transform.orientation;
+          const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(
+            new THREE.Quaternion(q.x, q.y, q.z, q.w));
+          if (Math.abs(dir.y) > 1e-4) {
+            const t = (model.position.y - o.y) / dir.y;
+            if (t > 0) {
+              const hx = o.x + dir.x * t;
+              const hz = o.z + dir.z * t;
+              const dx = hx - model.position.x;
+              const dz = hz - model.position.z;
+              // モデル付近(0.6m以内)を掴んだ時だけドラッグ
+              if (Math.hypot(dx, dz) < 0.6 || dragSource._dragging) {
+                dragSource._dragging = true;
+                model.position.x = hx;
+                model.position.z = hz;
+              }
+            }
+          }
+        }
+      }
+    }
+    renderer.render(scene, camera);
+  });
+});
+
+initThree();
+loadSample();
+</script>
+</body>
+</html>
