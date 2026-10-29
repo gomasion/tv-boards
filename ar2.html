@@ -107,6 +107,10 @@ let blinkTargets = [];
 let lastBlinkName = null;
 let nextBlinkAt = 0;
 let blinkStart = -1;
+// 呼吸用
+let breathBone = null;
+let breathBase = null;
+let lastBreathName = null;
 
 function setStatus(t) { statusEl.textContent = t; }
 function setOv(t) { ovStatus.textContent = t; }
@@ -174,12 +178,33 @@ function findBlinkTargets(root) {
   nextBlinkAt = 0;
 }
 
+function findBreathBone(root) {
+  breathBone = null;
+  breathBase = null;
+  lastBreathName = null;
+  const bones = [];
+  root.traverse((o) => {
+    if (o.isSkinnedMesh && o.skeleton) bones.push(...o.skeleton.bones);
+  });
+  const pats = [/upper_?chest/i, /chest/i, /spine_?2/i, /spine_?1/i, /spine/i];
+  for (const pat of pats) {
+    const b = bones.find(bn => pat.test(bn.name));
+    if (b) {
+      breathBone = b;
+      breathBase = b.scale.clone();
+      lastBreathName = b.name;
+      break;
+    }
+  }
+}
+
 function setModel(obj) {
   if (model) { scene.remove(model); }
   model = fitModel(obj);
   model.visible = false;
   scene.add(model);
   findBlinkTargets(model);
+  findBreathBone(model);
   arBtn.disabled = false;
 }
 
@@ -197,7 +222,8 @@ document.getElementById('file').addEventListener('change', async (e) => {
   try {
     await loadGLB(URL.createObjectURL(f));
     setStatus('読み込み完了: ' + f.name
-      + (lastBlinkName ? '（瞬きモーフ: ' + lastBlinkName + ' あり）' : '（瞬きモーフなし）')
+      + (lastBlinkName ? '（瞬き: ' + lastBlinkName + '）' : '（瞬きなし）')
+      + (lastBreathName ? '（呼吸ボーン: ' + lastBreathName + '）' : '（呼吸ボーンなし）')
       + ' → 「ARで置く」を押してね');
   } catch (err) {
     setStatus('読み込み失敗: ' + err.message);
@@ -319,6 +345,18 @@ arBtn.addEventListener('click', async () => {
     if (frame) {
       const dt = Math.min(0.05, (time - lastT) / 1000 || 0);
       lastT = time;
+      // 呼吸アニメーション（胸ボーンをゆっくり膨らませる）
+      if (breathBone && breathBase) {
+        const nowB = time / 1000;
+        const phase = (nowB % 4.4) / 4.4;
+        const ease = (x) => x * x * (3 - 2 * x);
+        const v = phase < 0.4 ? ease(phase / 0.4) : 1 - ease((phase - 0.4) / 0.6);
+        breathBone.scale.set(
+          breathBase.x * (1 + 0.028 * v),
+          breathBase.y * (1 + 0.012 * v),
+          breathBase.z * (1 + 0.028 * v)
+        );
+      }
       // 瞬きアニメーション
       if (blinkTargets.length) {
         const now = time / 1000;
